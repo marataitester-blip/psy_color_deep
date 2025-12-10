@@ -1,0 +1,5 @@
+{
+  "name": "MirMag Groq",
+  "description": "A mystical Tarot AI application using Groq for Jungian analysis and OpenRouter Flux for visual portraits.",
+  "requestFramePermissions": []
+}
