@@ -1,20 +1,18 @@
 export default async function handler(req, res) {
-  // CORS configuration for Vercel Serverless Function
+  // CORS configuration
   res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', '*'); // Adjust for production security if needed
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
     'Access-Control-Allow-Headers',
     'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
   );
 
-  // Handle Preflight requests
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
 
-  // Allow only POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
@@ -22,7 +20,7 @@ export default async function handler(req, res) {
   const { userInput } = req.body;
 
   if (!userInput) {
-    return res.status(400).json({ error: 'Description is required' });
+    return res.status(400).json({ error: 'Пожалуйста, опишите ваше состояние' });
   }
 
   try {
@@ -40,14 +38,13 @@ export default async function handler(req, res) {
         messages: [
           {
             role: "system",
-            content: "Ты юнгианский психолог и таролог. Проанализируй состояние пользователя. Верни ТОЛЬКО валидный JSON объект. Не используй markdown блоки (```json). Формат: {\"card_name\": \"Название карты\", \"interpretation\": \"Глубокое психологическое толкование (на русском)\", \"image_prompt\": \"Детальное описание карты для генерации изображения на английском, мистический стиль, высокое качество, dark fantasy tarot style\"}."
+            content: "Ты юнгианский психолог и таролог. Проанализируй состояние пользователя. Верни ТОЛЬКО валидный JSON объект. Не используй markdown блоки (```json). Формат: {\"card_name\": \"Название карты (на русском)\", \"interpretation\": \"Глубокое психологическое толкование состояния (на русском, 3-4 предложения)\", \"image_prompt\": \"Description of the tarot card in English, dark fantasy style, detailed, mystical, golden accents, high resolution, centered composition\"}."
           },
           {
             role: "user",
             content: userInput
           }
         ],
-        // Force JSON object mode if supported by the model, otherwise prompt relies on system instruction
         response_format: { type: "json_object" },
         temperature: 0.7,
       }),
@@ -55,66 +52,63 @@ export default async function handler(req, res) {
 
     if (!groqResponse.ok) {
       const errorText = await groqResponse.text();
-      throw new Error(`Groq API Error: ${groqResponse.status} ${errorText}`);
+      console.error("Groq Error:", errorText);
+      throw new Error(`Ошибка сервиса анализа (Groq): ${groqResponse.status}`);
     }
 
     const groqData = await groqResponse.json();
     let content = groqData.choices[0]?.message?.content || "{}";
 
-    // Clean up any potential markdown formatting from the LLM
+    // Clean up markdown formatting if present
     content = content.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
 
     let parsedGroq;
     try {
       parsedGroq = JSON.parse(content);
     } catch (e) {
-      console.error("Failed to parse Groq JSON:", content);
-      throw new Error("Invalid JSON received from Groq");
+      console.error("JSON Parse Error:", content);
+      throw new Error("Ошибка обработки ответа от AI");
     }
 
     if (!parsedGroq.image_prompt) {
-      throw new Error("Groq response missing image_prompt");
+      throw new Error("AI не смог сформировать визуальный образ");
     }
 
     // ---------------------------------------------------------
-    // STEP 2: OpenRouter API (Image Generation)
+    // STEP 2: OpenRouter API (Image Generation - Flux.2 Pro)
     // ---------------------------------------------------------
-    // Note: Using images/generations endpoint to ensure reliable b64_json return
-    // which effectively maps to the 'image' modality requirement but ensures correct data format.
+    // We use the generations endpoint to request b64_json directly for speed/simplicity
     const openRouterResponse = await fetch('https://openrouter.ai/api/v1/images/generations', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
         'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://mirmag-groq.vercel.app', // Required by OpenRouter for ranking
+        'HTTP-Referer': 'https://mirmag.vercel.app',
         'X-Title': 'MirMag Groq',
       },
       body: JSON.stringify({
         model: 'black-forest-labs/flux.2-pro',
         prompt: parsedGroq.image_prompt,
-        // Request base64 directly to avoid secondary fetch
-        response_format: 'b64_json', 
-        num_images: 1
+        num_images: 1,
+        response_format: 'b64_json' 
       }),
     });
 
     if (!openRouterResponse.ok) {
       const errorText = await openRouterResponse.text();
-      throw new Error(`OpenRouter API Error: ${openRouterResponse.status} ${errorText}`);
+      console.error("OpenRouter Error:", errorText);
+      throw new Error(`Ошибка генерации изображения: ${openRouterResponse.status}`);
     }
 
     const imageData = await openRouterResponse.json();
-    
-    // Check for standard OpenAI-compatible image response structure
     const b64 = imageData.data?.[0]?.b64_json;
 
     if (!b64) {
-      console.error("OpenRouter Response:", imageData);
-      throw new Error("No image data received from OpenRouter");
+      throw new Error("Изображение не было получено");
     }
 
     // ---------------------------------------------------------
-    // STEP 3: Return Final JSON
+    // STEP 3: Return Result
     // ---------------------------------------------------------
     res.status(200).json({
       card_name: parsedGroq.card_name,
@@ -123,9 +117,9 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error("Analysis failed:", error);
+    console.error("Full Error:", error);
     res.status(500).json({ 
-      error: error.message || "Internal Server Error during analysis" 
+      error: error.message || "Внутренняя ошибка сервера" 
     });
   }
 }

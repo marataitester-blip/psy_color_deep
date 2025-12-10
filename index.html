@@ -1,45 +1,293 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MirMag Groq - AI Tarot</title>
+    <title>MirMag Groq - Психологический Портрет</title>
+    
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & Babel -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Lucide Icons (UMD version for global access) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Lato:wght@300;400&display=swap');
-      body {
-        font-family: 'Lato', sans-serif;
-        background-color: #0a0a0a;
-        color: #e5e5e5;
+      
+      /* Base styles with strict fallbacks */
+      body, html {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #0a0a0a; /* Fallback bg */
+        color: #e5e5e5; /* Fallback text */
+        font-family: 'Lato', system-ui, -apple-system, sans-serif;
+        overflow-x: hidden;
       }
+      
+      /* Typography */
       h1, h2, h3, .font-mystic {
-        font-family: 'Cinzel', serif;
+        font-family: 'Cinzel', 'Times New Roman', serif;
       }
+      
+      /* Effects */
       .gold-glow {
-        box-shadow: 0 0 15px rgba(234, 179, 8, 0.3);
+        text-shadow: 0 0 20px rgba(234, 179, 8, 0.5);
       }
+      
+      .perspective {
+        perspective: 1000px;
+      }
+      
+      /* Custom Loader */
       .loader {
         border-top-color: #eab308;
-        -webkit-animation: spinner 1.5s linear infinite;
         animation: spinner 1.5s linear infinite;
       }
+      
       @keyframes spinner {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
+      }
+
+      /* Animation classes */
+      .fade-in {
+        animation: fadeIn 0.8s ease-out forwards;
+        opacity: 0;
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      /* Ensure content is visible */
+      #root {
+        min-height: 100vh;
+        position: relative;
+        z-index: 1;
+        background-color: #0a0a0a;
       }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "lucide-react": "https://esm.sh/lucide-react@^0.559.0",
+    "react": "https://esm.sh/react@^19.2.1",
     "react-dom/": "https://esm.sh/react-dom@^19.2.1/",
     "react/": "https://esm.sh/react@^19.2.1/",
-    "react": "https://esm.sh/react@^19.2.1"
+    "lucide-react": "https://esm.sh/lucide-react@^0.559.0"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+
+    <!-- Application Logic -->
+    <script type="text/babel">
+      const { useState, useEffect } = React;
+
+      // Icon Wrapper Component because Lucide UMD provides 'lucide' global
+      const Icon = ({ name, className }) => {
+        const [svgContent, setSvgContent] = useState('');
+        
+        useEffect(() => {
+          if (window.lucide && window.lucide.icons[name]) {
+            // Convert the icon definition to SVG string manually or use createLucideIcon
+            // For simplicity in CDN usage, we mimic the icon structure
+            // However, lucide-react is harder to use via UMD. 
+            // We will use a simpler approach: Render SVG directly if possible or simple placeholders if icons fail
+          }
+        }, [name]);
+        
+        // Simpler approach for UMD Lucide: use <i data-lucide={name}></i> and call lucide.createIcons()
+        return <i data-lucide={name} className={className}></i>;
+      };
+
+      // Since we are using React, we need a way to render Lucide icons. 
+      // The easiest way without a bundler is to use the global `lucide` object to replace elements.
+      const LucideIcon = ({ name, size = 24, className = "" }) => {
+        useEffect(() => {
+          if (window.lucide) {
+            window.lucide.createIcons();
+          }
+        });
+        return <i data-lucide={name} width={size} height={size} className={className}></i>;
+      };
+
+      const App = () => {
+        const [input, setInput] = useState('');
+        const [loading, setLoading] = useState(false);
+        const [result, setResult] = useState(null);
+        const [error, setError] = useState(null);
+
+        const handleSubmit = async (e) => {
+          e.preventDefault();
+          if (!input.trim()) return;
+
+          setLoading(true);
+          setError(null);
+          setResult(null);
+
+          try {
+            const response = await fetch('/api/analyze', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ userInput: input }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+              throw new Error(data.error || 'Ошибка анализа');
+            }
+
+            setResult(data);
+          } catch (err) {
+            setError(err.message || 'Произошла непредвиденная ошибка');
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        return (
+          <div className="min-h-screen bg-neutral-950 text-amber-50 selection:bg-amber-900/30 font-sans">
+            <div className="max-w-4xl mx-auto px-6 py-12">
+              
+              {/* Header */}
+              <header className="text-center mb-16 relative z-10">
+                <div className="inline-flex items-center justify-center p-3 mb-6 rounded-full border border-amber-500/20 bg-amber-900/10">
+                  <LucideIcon name="moon" className="w-6 h-6 text-amber-500 mr-2" />
+                  <span className="font-mystic text-amber-500 tracking-widest text-sm font-bold">MIRMAG GROQ</span>
+                  <LucideIcon name="sun" className="w-6 h-6 text-amber-500 ml-2" />
+                </div>
+                <h1 className="font-mystic text-4xl md:text-6xl text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-500 to-amber-200 gold-glow mb-4 font-bold">
+                  Психологический Портрет
+                </h1>
+                <p className="text-neutral-400 max-w-lg mx-auto font-light text-lg">
+                  Опишите своё состояние, и ИИ через призму Юнгианской психологии откроет вашу карту Таро.
+                </p>
+              </header>
+
+              {/* Input Section */}
+              <div className="relative z-20 bg-neutral-900/80 backdrop-blur-md border border-amber-500/20 rounded-2xl p-8 shadow-2xl mb-12">
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  <div>
+                    <label htmlFor="user-state" className="block text-sm font-mystic text-amber-500/80 mb-2 tracking-wider uppercase">
+                      Ваше Состояние
+                    </label>
+                    <textarea
+                      id="user-state"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      placeholder="Что вас беспокоит? О чём вы думаете? Опишите свои чувства..."
+                      className="w-full h-32 bg-neutral-950/50 border border-neutral-800 rounded-lg p-4 text-neutral-200 focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50 outline-none transition-all placeholder:text-neutral-700 resize-none text-lg"
+                      disabled={loading}
+                    />
+                  </div>
+                  
+                  <button
+                    type="submit"
+                    disabled={loading || !input.trim()}
+                    className="w-full py-4 bg-gradient-to-r from-amber-700 to-amber-600 hover:from-amber-600 hover:to-amber-500 text-amber-50 font-mystic tracking-widest rounded-lg transition-all duration-300 transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 border border-amber-400/20 shadow-lg text-lg font-bold"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="loader ease-linear rounded-full border-2 border-t-2 border-neutral-200 h-5 w-5"></div>
+                        <span>ОБРАБОТКА...</span>
+                      </>
+                    ) : (
+                      <>
+                        <LucideIcon name="sparkles" className="w-5 h-5" />
+                        <span>ПОЛУЧИТЬ ОТВЕТ</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+
+              {/* Error State */}
+              {error && (
+                <div className="mb-12 p-4 bg-red-950/50 border border-red-500/30 rounded-lg flex items-center gap-3 text-red-200 animate-fade-in">
+                  <LucideIcon name="alert-circle" className="w-5 h-5 flex-shrink-0" />
+                  <p>{error}</p>
+                </div>
+              )}
+
+              {/* Result Section */}
+              {result && !loading && (
+                <div className="grid md:grid-cols-2 gap-8 md:gap-12 fade-in">
+                  {/* Image Card */}
+                  <div className="relative group perspective">
+                    <div className="absolute inset-0 bg-amber-500/20 blur-xl rounded-full opacity-30 group-hover:opacity-50 transition-opacity duration-700"></div>
+                    <div className="relative bg-neutral-900 border border-amber-500/30 p-2 rounded-xl transform transition-transform duration-500 hover:-translate-y-2 shadow-2xl">
+                      <div className="aspect-[2/3] w-full overflow-hidden rounded-lg bg-neutral-950 relative">
+                        <img 
+                          src={result.image_url} 
+                          alt={result.card_name}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 ring-1 ring-inset ring-amber-500/20 rounded-lg"></div>
+                      </div>
+                      <div className="mt-4 text-center pb-2">
+                        <h3 className="font-mystic text-2xl text-amber-500 font-bold">{result.card_name}</h3>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Text Interpretation */}
+                  <div className="flex flex-col justify-center space-y-6">
+                    <div className="prose prose-invert prose-amber max-w-none">
+                      <h3 className="font-mystic text-xl text-neutral-400 uppercase tracking-widest border-b border-amber-500/20 pb-2 mb-4">
+                        Толкование
+                      </h3>
+                      <div className="text-lg leading-relaxed text-neutral-300 font-light whitespace-pre-line">
+                        {result.interpretation}
+                      </div>
+                    </div>
+                    
+                    <div className="pt-6 border-t border-amber-500/10">
+                      <p className="text-xs text-center text-neutral-600 font-mystic uppercase tracking-widest">
+                        Сгенерировано AI на основе Юнгианских архетипов
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Loading Overlay State */}
+              {loading && (
+                <div className="fixed inset-0 z-50 bg-neutral-950/90 backdrop-blur-md flex flex-col items-center justify-center">
+                  <div className="relative">
+                    <div className="w-24 h-24 border-4 border-amber-900/30 border-t-amber-500 rounded-full animate-spin"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <LucideIcon name="sparkles" className="w-8 h-8 text-amber-500 animate-pulse" />
+                    </div>
+                  </div>
+                  <p className="mt-8 font-mystic text-xl text-amber-500 animate-pulse tracking-widest font-bold">
+                    GROQ ВЫЧИСЛЯЕТ ВЕРОЯТНОСТИ...
+                  </p>
+                  <p className="mt-2 text-sm text-neutral-500 font-mystic tracking-wider">
+                    ПОДКЛЮЧЕНИЕ К НООСФЕРЕ
+                  </p>
+                </div>
+              )}
+
+            </div>
+          </div>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
   </body>
 </html>
