@@ -1,5 +1,5 @@
 export default async function handler(req, res) {
-  // CORS
+  // CORS configuration
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -15,18 +15,28 @@ export default async function handler(req, res) {
 
   const { userInput } = req.body;
 
-  if (!userInput) {
-    return res.status(400).json({ error: 'No input provided' });
+  // Validate input
+  if (!userInput || typeof userInput !== 'string' || userInput.trim().length === 0) {
+    return res.status(400).json({ error: 'Пожалуйста, опишите ваше состояние' });
   }
 
-  if (!process.env.GROQ_API_KEY || !process.env.OPENROUTER_API_KEY) {
-    console.error('Missing API keys');
-    return res.status(500).json({ error: 'API keys not configured' });
+  // Validate API keys
+  if (!process.env.GROQ_API_KEY) {
+    console.error('Missing GROQ_API_KEY');
+    return res.status(500).json({ error: 'Groq API key not configured' });
+  }
+
+  if (!process.env.OPENROUTER_API_KEY) {
+    console.error('Missing OPENROUTER_API_KEY');
+    return res.status(500).json({ error: 'OpenRouter API key not configured' });
   }
 
   try {
-    // Step 1: Call Groq for text analysis
-    console.log('Calling Groq API...');
+    // ─────────────────────────────────────────────
+    // STEP 1: Groq API - Generate tarot card analysis
+    // ─────────────────────────────────────────────
+    console.log('📍 Step 1: Calling Groq API for tarot analysis...');
+    
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -38,43 +48,66 @@ export default async function handler(req, res) {
         messages: [
           {
             role: 'system',
-            content: 'You are a Jungian psychologist and tarot expert. Analyze the user state and return ONLY a JSON object with no markdown: {"card_name": "Tarot Card Name", "interpretation": "3-4 sentence psychological analysis in Russian", "image_prompt": "English description of the tarot card, dark fantasy style, mystical, golden accents, detailed"}',
+            content: `You are a Jungian psychologist and expert tarot reader. Analyze the user's emotional state and provide a deep psychological interpretation through tarot archetypes. 
+
+Return ONLY valid JSON (no markdown, no code blocks):
+{
+  "card_name": "Specific Tarot Card Name (in Russian)",
+  "interpretation": "3-4 sentences of deep psychological analysis in Russian, addressing the user's emotional state and psychological archetype",
+  "image_prompt": "Detailed English description of the corresponding tarot card image: dark mystical fantasy style, golden accents, detailed composition, centered portrait, high quality, realistic yet mystical"
+}`,
           },
           {
             role: 'user',
-            content: userInput,
+            content: userInput.trim(),
           },
         ],
         response_format: { type: 'json_object' },
-        temperature: 0.7,
-        max_tokens: 1000,
+        temperature: 0.8,
+        max_tokens: 1500,
+        top_p: 0.9,
       }),
     });
 
+    // Check Groq response
     if (!groqResponse.ok) {
       const errorText = await groqResponse.text();
-      console.error('Groq error:', errorText);
-      throw new Error(`Groq failed: ${groqResponse.status}`);
+      console.error('❌ Groq API Error:', groqResponse.status, errorText);
+      throw new Error(`Groq API error: ${groqResponse.status}`);
     }
 
     const groqData = await groqResponse.json();
+    console.log('✅ Groq response received');
+
+    // Parse Groq response
     let content = groqData.choices?.[0]?.message?.content || '{}';
-    content = content.replace(/^``````$/i, '').trim();
+    content = content
+      .replace(/^```
+      .replace(/\s*```$/i, '')
+      .trim();
 
     let parsedGroq;
     try {
       parsedGroq = JSON.parse(content);
-    } catch (e) {
-      console.error('JSON parse error:', content);
-      throw new Error('Failed to parse Groq response');
+    } catch (parseError) {
+      console.error('❌ JSON Parse Error:', content);
+      throw new Error('Failed to parse tarot analysis from Groq');
     }
 
-    const cardName = parsedGroq.card_name || 'Archetype';
-    const interpretation = parsedGroq.interpretation || 'A mystical revelation awaits.';
-    const imagePrompt = parsedGroq.image_prompt || 'mystical tarot card, dark gold, detailed, fantasy';
+    // Extract data with fallbacks
+    const cardName = parsedGroq.card_name?.trim() || 'The Fool';
+    const interpretation = parsedGroq.interpretation?.trim() || 
+      'Этот архетип отражает вашу способность к трансформации и внутреннему росту.';
+    const imagePrompt = parsedGroq.image_prompt?.trim() || 
+      'mystical tarot card, The Fool, dark fantasy, golden accents, detailed, centered, high resolution';
 
-    // Step 2: Call OpenRouter for image
-    console.log('Calling OpenRouter API with prompt:', imagePrompt);
+    console.log('📋 Parsed data:', { cardName, promptLength: imagePrompt.length });
+
+    // ─────────────────────────────────────────────
+    // STEP 2: OpenRouter API - Generate image
+    // ─────────────────────────────────────────────
+    console.log('📍 Step 2: Calling OpenRouter API for image generation...');
+    
     const openRouterResponse = await fetch('https://openrouter.ai/api/v1/images/generations', {
       method: 'POST',
       headers: {
@@ -88,34 +121,54 @@ export default async function handler(req, res) {
         prompt: imagePrompt,
         num_images: 1,
         response_format: 'b64_json',
+        width: 768,
+        height: 1024,
       }),
     });
 
+    // Check OpenRouter response
     if (!openRouterResponse.ok) {
       const errorText = await openRouterResponse.text();
-      console.error('OpenRouter error:', errorText);
-      throw new Error(`Image generation failed: ${openRouterResponse.status}`);
+      console.error('❌ OpenRouter API Error:', openRouterResponse.status, errorText);
+      throw new Error(`OpenRouter API error: ${openRouterResponse.status}`);
     }
 
     const imageData = await openRouterResponse.json();
+    console.log('✅ OpenRouter response received');
+
+    // Extract base64 image
     const b64 = imageData.data?.[0]?.b64_json;
 
     if (!b64) {
-      console.error('No b64 data in response:', imageData);
-      throw new Error('No image generated');
+      console.error('❌ No base64 data in OpenRouter response:', imageData);
+      throw new Error('Image generation failed: no data received');
     }
 
-    // Return result
+    console.log('✅ Image generated successfully');
+
+    // ─────────────────────────────────────────────
+    // STEP 3: Return successful response
+    // ─────────────────────────────────────────────
     res.status(200).json({
       card_name: cardName,
       interpretation: interpretation,
       image_url: `data:image/png;base64,${b64}`,
     });
 
+    console.log('✅ Successfully returned result to client');
+
   } catch (error) {
-    console.error('Error:', error.message);
+    console.error('❌ Fatal Error:', error.message);
+    
+    // Return user-friendly error message
+    const errorMessage = error.message.includes('Groq') 
+      ? 'Ошибка анализа состояния. Попробуйте позже.'
+      : error.message.includes('OpenRouter')
+      ? 'Ошибка генерации портрета. Попробуйте позже.'
+      : error.message || 'Внутренняя ошибка сервера';
+
     res.status(500).json({
-      error: error.message || 'Server error',
+      error: errorMessage,
     });
   }
 }
