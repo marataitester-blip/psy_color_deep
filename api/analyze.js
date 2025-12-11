@@ -1,12 +1,8 @@
 export default async function handler(req, res) {
-  // CORS configuration
-  res.setHeader('Access-Control-Allow-Credentials', true);
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-  );
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     res.status(200).end();
@@ -20,21 +16,17 @@ export default async function handler(req, res) {
   const { userInput } = req.body;
 
   if (!userInput) {
-    return res.status(400).json({ error: 'Пожалуйста, опишите ваше состояние' });
+    return res.status(400).json({ error: 'No input provided' });
   }
 
-  // Verify API keys
-  if (!process.env.GROQ_API_KEY) {
-    return res.status(500).json({ error: 'GROQ_API_KEY is not configured' });
-  }
-  if (!process.env.OPENROUTER_API_KEY) {
-    return res.status(500).json({ error: 'OPENROUTER_API_KEY is not configured' });
+  if (!process.env.GROQ_API_KEY || !process.env.OPENROUTER_API_KEY) {
+    console.error('Missing API keys');
+    return res.status(500).json({ error: 'API keys not configured' });
   }
 
   try {
-    // ---------------------------------------------------------
-    // STEP 1: Groq API (Text Generation)
-    // ---------------------------------------------------------
+    // Step 1: Call Groq for text analysis
+    console.log('Calling Groq API...');
     const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -45,50 +37,44 @@ export default async function handler(req, res) {
         model: 'llama-3.3-70b-versatile',
         messages: [
           {
-            role: "system",
-            content: "Ты юнгианский психолог и таролог. Проанализируй состояние пользователя. Верни ТОЛЬКО валидный JSON объект. Не используй markdown блоки (```
+            role: 'system',
+            content: 'You are a Jungian psychologist and tarot expert. Analyze the user state and return ONLY a JSON object with no markdown: {"card_name": "Tarot Card Name", "interpretation": "3-4 sentence psychological analysis in Russian", "image_prompt": "English description of the tarot card, dark fantasy style, mystical, golden accents, detailed"}',
           },
           {
-            role: "user",
-            content: userInput
-          }
+            role: 'user',
+            content: userInput,
+          },
         ],
-        response_format: { type: "json_object" },
+        response_format: { type: 'json_object' },
         temperature: 0.7,
+        max_tokens: 1000,
       }),
     });
 
     if (!groqResponse.ok) {
       const errorText = await groqResponse.text();
-      console.error("Groq Error:", errorText);
-      throw new Error(`Groq API error: ${groqResponse.status}`);
+      console.error('Groq error:', errorText);
+      throw new Error(`Groq failed: ${groqResponse.status}`);
     }
 
     const groqData = await groqResponse.json();
-    let content = groqData.choices?.message?.content || "{}";
-
-    // Clean up markdown formatting if present
-    content = content.replace(/^```json\s*/i, '').replace(/\s*```
+    let content = groqData.choices?.[0]?.message?.content || '{}';
+    content = content.replace(/^``````$/i, '').trim();
 
     let parsedGroq;
     try {
       parsedGroq = JSON.parse(content);
     } catch (e) {
-      console.error("JSON Parse Error:", content);
-      throw new Error("Failed to parse AI response");
+      console.error('JSON parse error:', content);
+      throw new Error('Failed to parse Groq response');
     }
 
-    if (!parsedGroq.image_prompt) {
-      throw new Error("No image prompt generated");
-    }
+    const cardName = parsedGroq.card_name || 'Archetype';
+    const interpretation = parsedGroq.interpretation || 'A mystical revelation awaits.';
+    const imagePrompt = parsedGroq.image_prompt || 'mystical tarot card, dark gold, detailed, fantasy';
 
-    const cardName = parsedGroq.card_name || 'Архетип';
-    const interpretation = parsedGroq.interpretation || '';
-    const imagePrompt = parsedGroq.image_prompt;
-
-    // ---------------------------------------------------------
-    // STEP 2: OpenRouter API (Image Generation - Flux.2 Pro)
-    // ---------------------------------------------------------
+    // Step 2: Call OpenRouter for image
+    console.log('Calling OpenRouter API with prompt:', imagePrompt);
     const openRouterResponse = await fetch('https://openrouter.ai/api/v1/images/generations', {
       method: 'POST',
       headers: {
@@ -101,38 +87,35 @@ export default async function handler(req, res) {
         model: 'black-forest-labs/flux-pro',
         prompt: imagePrompt,
         num_images: 1,
-        response_format: 'b64_json'
+        response_format: 'b64_json',
       }),
     });
 
     if (!openRouterResponse.ok) {
       const errorText = await openRouterResponse.text();
-      console.error("OpenRouter Error:", errorText);
+      console.error('OpenRouter error:', errorText);
       throw new Error(`Image generation failed: ${openRouterResponse.status}`);
     }
 
     const imageData = await openRouterResponse.json();
-    const b64 = imageData.data?.?.b64_json;
+    const b64 = imageData.data?.[0]?.b64_json;
 
     if (!b64) {
-      throw new Error("No image data received");
+      console.error('No b64 data in response:', imageData);
+      throw new Error('No image generated');
     }
 
-    const imageUrl = `data:image/png;base64,${b64}`;
-
-    // ---------------------------------------------------------
-    // STEP 3: Return Result
-    // ---------------------------------------------------------
+    // Return result
     res.status(200).json({
       card_name: cardName,
       interpretation: interpretation,
-      image_url: imageUrl
+      image_url: `data:image/png;base64,${b64}`,
     });
 
   } catch (error) {
-    console.error("Full Error:", error);
-    res.status(500).json({ 
-      error: error.message || "Internal server error" 
+    console.error('Error:', error.message);
+    res.status(500).json({
+      error: error.message || 'Server error',
     });
   }
 }
