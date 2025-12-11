@@ -92,9 +92,7 @@ export default async function handler(req, res) {
     const imagePrompt = parsed.image_prompt || 'mystical tarot card, dark fantasy, golden accents, detailed';
 
     console.log('[2] Starting OpenRouter image generation');
-    console.log('[2] Prompt:', imagePrompt.substring(0, 80));
 
-    // OpenRouter API - правильный формат
     const orRes = await fetch('https://openrouter.ai/api/v1/images/generations', {
       method: 'POST',
       headers: {
@@ -114,19 +112,103 @@ export default async function handler(req, res) {
     });
 
     console.log('[2] OpenRouter status:', orRes.status);
-    console.log('[2] OpenRouter headers:', JSON.stringify({
-      'content-type': orRes.headers.get('content-type'),
-      'content-length': orRes.headers.get('content-length'),
-    }));
 
     if (!orRes.ok) {
       const errText = await orRes.text();
       console.error('[2] OpenRouter error:', orRes.status);
       console.error('[2] Error body:', errText.substring(0, 500));
       
-      // Если OpenRouter упал, возвращаем текст + SVG fallback
+      // Fallback на SVG
       const svgFallback = generateTarotSVG(cardName);
-      const b64Fallback = Buffer.from(svgFallback).toString('base64');
+      const b64Fallback = btoa(svgFallback);
       
       return res.status(200).json({
-        car
+        card_name: cardName,
+        interpretation: interpretation,
+        image_url: `data:image/svg+xml;base64,${b64Fallback}`,
+        warning: 'Image generation service unavailable, using default image',
+      });
+    }
+
+    const orData = await orRes.json();
+    console.log('[2] OpenRouter response received');
+
+    const b64 = orData.data?.[0]?.b64_json;
+
+    if (!b64) {
+      console.error('[2] No b64 in response');
+      
+      // Fallback на SVG
+      const svgFallback = generateTarotSVG(cardName);
+      const b64Fallback = btoa(svgFallback);
+      
+      return res.status(200).json({
+        card_name: cardName,
+        interpretation: interpretation,
+        image_url: `data:image/svg+xml;base64,${b64Fallback}`,
+      });
+    }
+
+    console.log('[3] Image generated successfully');
+
+    res.status(200).json({
+      card_name: cardName,
+      interpretation: interpretation,
+      image_url: `data:image/png;base64,${b64}`,
+    });
+
+  } catch (error) {
+    console.error('[ERROR]', error.message);
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+}
+
+function generateTarotSVG(cardName) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600" width="400" height="600">
+    <defs>
+      <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" style="stop-color:#1a1a24;stop-opacity:1" />
+        <stop offset="100%" style="stop-color:#0f0f14;stop-opacity:1" />
+      </linearGradient>
+      <filter id="glow">
+        <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+        <feMerge>
+          <feMergeNode in="coloredBlur"/>
+          <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+      </filter>
+    </defs>
+    
+    <rect fill="url(#grad)" width="400" height="600"/>
+    
+    <!-- Ornate border -->
+    <rect x="15" y="15" width="370" height="570" fill="none" stroke="#c7a87b" stroke-width="3"/>
+    <rect x="20" y="20" width="360" height="560" fill="none" stroke="#a68558" stroke-width="1"/>
+    
+    <!-- Corner decorations -->
+    <circle cx="25" cy="25" r="4" fill="#c7a87b" filter="url(#glow)"/>
+    <circle cx="375" cy="25" r="4" fill="#c7a87b" filter="url(#glow)"/>
+    <circle cx="25" cy="575" r="4" fill="#c7a87b" filter="url(#glow)"/>
+    <circle cx="375" cy="575" r="4" fill="#c7a87b" filter="url(#glow)"/>
+    
+    <!-- Card title -->
+    <text x="200" y="80" font-family="Cinzel, serif" font-size="32" font-weight="bold" fill="#c7a87b" text-anchor="middle" filter="url(#glow)">${cardName}</text>
+    
+    <!-- Mystical circles -->
+    <circle cx="200" cy="300" r="80" fill="none" stroke="#c7a87b" stroke-width="1" opacity="0.4"/>
+    <circle cx="200" cy="300" r="65" fill="none" stroke="#a68558" stroke-width="1" opacity="0.3"/>
+    <circle cx="200" cy="300" r="50" fill="none" stroke="#c7a87b" stroke-width="1" opacity="0.2"/>
+    
+    <!-- Central star -->
+    <path d="M 200 240 L 215 285 L 265 285 L 225 330 L 240 375 L 200 330 L 160 375 L 175 330 L 135 285 L 185 285 Z" fill="#c7a87b" opacity="0.7" filter="url(#glow)"/>
+    
+    <!-- Decorative lines -->
+    <line x1="50" y1="150" x2="350" y2="150" stroke="#a68558" stroke-width="1" opacity="0.3"/>
+    <line x1="50" y1="450" x2="350" y2="450" stroke="#a68558" stroke-width="1" opacity="0.3"/>
+    
+    <!-- Bottom text -->
+    <text x="200" y="540" font-family="Cinzel, serif" font-size="14" fill="#9a9490" text-anchor="middle" opacity="0.6">✦ MIRMAG GROQ ✦</text>
+  </svg>`;
+}
